@@ -13,11 +13,13 @@ import org.apache.poi.ss.util.CellRangeAddress;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.text.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Created by cary on 6/15/17.
+ * Updated by RayHu 5/14/18.
  */
 public class PdfTableExcel {
 	// ExcelObject
@@ -57,82 +59,64 @@ public class PdfTableExcel {
 	protected PdfPTable toParseContent(Sheet sheet)
 			throws BadElementException, MalformedURLException, IOException, DocumentException {
 		int rowlength = sheet.getLastRowNum() + 1;
-		List<PdfPCell> cells = new ArrayList<PdfPCell>();
-		float[] widths = null;
-		float mw = 0;
+		List<List<PdfPCell>> cells = new ArrayList<List<PdfPCell>>();
+		List<PdfPCell> pdfRow = null;
 		List<Float> columnWidths = new ArrayList<Float>();
 		for (int i = 0; i < 1000; i++)
 			columnWidths.add(0f);
 		int columnCount = 0;
 		for (int i = 0; i < rowlength; i++) {
+			cells.add(pdfRow = new ArrayList<PdfPCell>());
 			Row row = sheet.getRow(i);
-			float[] cws = new float[row.getLastCellNum()];
 			int colCount = row.getLastCellNum();
-			for (int j = 0; j < colCount; j++) {
-				if (colCount > columnCount)
-					columnCount = colCount;
-				Cell cell = row.getCell(j);
-				// POI 產生的 Excel 可能會有 null cell
-				boolean nullCell = false;
-				if (cell == null) {
-					nullCell = true;
-					cell = row.createCell(j);
-				}
-				float cw = getPOIColumnWidth(cell);
-				cws[cell.getColumnIndex()] = cw;
-				columnWidths.set(cell.getColumnIndex(), cw);
-				if (isUsed(cell.getColumnIndex(), row.getRowNum())) {
-					continue;
-				}
-				// cell.setCellType(Cell.CELL_TYPE_STRING);
-				CellRangeAddress range = getColspanRowspanByExcel(row.getRowNum(), cell.getColumnIndex());
-				//
-				int rowspan = 1;
-				int colspan = 1;
-				if (range != null) {
-					rowspan = range.getLastRow() - range.getFirstRow() + 1;
-					colspan = range.getLastColumn() - range.getFirstColumn() + 1;
-				}
-				// PDF单元格
-				PdfPCell pdfpCell = new PdfPCell();
+			if (colCount < 0)
+				colCount = 0;
+			if (colCount > 0) {
+				float[] cws = new float[colCount];
+				for (int j = 0; j < colCount; j++) {
+					if (colCount > columnCount)
+						columnCount = colCount;
+					Cell cell = row.getCell(j);
+					// POI 產生的 Excel 可能會有 null cell
+					if (cell == null) {
+						cell = row.createCell(j);
+					}
+					float cw = getPOIColumnWidth(cell);
+					cws[cell.getColumnIndex()] = cw;
+					columnWidths.set(cell.getColumnIndex(), cw);
+					if (isUsed(cell.getColumnIndex(), row.getRowNum())) {
+						continue;
+					}
+					CellRangeAddress range = getColspanRowspanByExcel(row.getRowNum(), cell.getColumnIndex());
+					int rowspan = 1;
+					int colspan = 1;
+					if (range != null) {
+						rowspan = range.getLastRow() - range.getFirstRow() + 1;
+						colspan = range.getLastColumn() - range.getFirstColumn() + 1;
+					}
+					// PDF单元格
+					PdfPCell pdfpCell = new PdfPCell();
 
-				int[] rgb = getBackgroundColor(cell.getCellStyle());
-				pdfpCell.setBackgroundColor(new BaseColor(rgb[0], rgb[1], rgb[2]));
-				// pdfpCell.setBackgroundColor(new
-				// BaseColor(getBackgroundColorByExcel(cell.getCellStyle())));
-				pdfpCell.setColspan(colspan);
-				pdfpCell.setRowspan(rowspan);
-				pdfpCell.setVerticalAlignment(getVAlignByExcel(cell.getCellStyle().getVerticalAlignment()));
-				pdfpCell.setHorizontalAlignment(getHAlignByExcel(cell.getCellStyle().getAlignment()));
-				pdfpCell.setPhrase(getPhrase(cell));
-				// pdfpCell.setFixedHeight(this.getPixelHeight(row.getHeightInPoints()));
-				pdfpCell.setMinimumHeight(this.getPixelHeight(row.getHeightInPoints()));
-				// 不自動換行,應該參數化
-				pdfpCell.setNoWrap(true);
-				// 中文字才不會黏在邊界線上
-				pdfpCell.setPaddingBottom(3);
+					int[] rgb = getBackgroundColor(cell.getCellStyle());
+					pdfpCell.setBackgroundColor(new BaseColor(rgb[0], rgb[1], rgb[2]));
+					pdfpCell.setColspan(colspan);
+					pdfpCell.setRowspan(rowspan);
+					pdfpCell.setVerticalAlignment(getVAlignByExcel(cell.getCellStyle().getVerticalAlignment()));
+					pdfpCell.setHorizontalAlignment(getHAlignByExcel(cell.getCellStyle().getAlignment()));
+					pdfpCell.setPhrase(getPhrase(cell));
+					// pdfpCell.setFixedHeight(this.getPixelHeight(row.getHeightInPoints()));
+					pdfpCell.setMinimumHeight(this.getPixelHeight(row.getHeightInPoints()));
+					// 不自動換行,應該參數化
+					pdfpCell.setNoWrap(true);
+					// 中文字才不會黏在邊界線上
+					pdfpCell.setPaddingBottom(3);
 
-				addBorderByExcel(pdfpCell, cell.getCellStyle());
-				addImageByPOICell(pdfpCell, cell, cw);
-				//
-				cells.add(pdfpCell);
-				j += colspan - 1;
-			}
-			// 若 Column 數不足(POI 產生的 Excel 可能有此狀況),可能導致下一行的 Cell 跑去上一列尾端
-			int emptyColumns = columnCount - colCount;
-			if (emptyColumns > 0) {
-				PdfPCell pdfpCell = new PdfPCell();
-				pdfpCell.setColspan(emptyColumns);
-				pdfpCell.setRowspan(1);
-				cells.add(pdfpCell);
-			}
-			float rw = 0;
-			for (int j = 0; j < cws.length; j++) {
-				rw += cws[j];
-			}
-			if (rw > mw || mw == 0) {
-				widths = cws;
-				mw = rw;
+					addBorderByExcel(pdfpCell, cell.getCellStyle());
+					addImageByPOICell(pdfpCell, cell, cw);
+					
+					pdfRow.add(pdfpCell);
+					j += colspan - 1;
+				}	
 			}
 		}
 
@@ -143,9 +127,11 @@ public class PdfTableExcel {
 			colWidths[i] = columnWidths.get(i);
 		table.setWidths(colWidths);
 		table.setWidthPercentage(100);
-		// table.setLockedWidth(true);
-		for (PdfPCell pdfpCell : cells) {
-			table.addCell(pdfpCell);
+		for(List<PdfPCell> row:cells) {
+			for (PdfPCell pdfpCell : row) {
+				table.addCell(pdfpCell);
+			}
+			table.completeRow();
 		}
 		return table;
 	}
@@ -186,7 +172,8 @@ public class PdfTableExcel {
 				Phrase phrase = new Phrase(formattedValue, getFontByExcel(cell.getCellStyle()));
 				return phrase;
 			} else {
-				Phrase phrase = new Phrase(Double.toString(cellNumberValue), getFontByExcel(cell.getCellStyle()));
+				NumberFormat format = new DecimalFormat("#.#");
+				Phrase phrase = new Phrase(format.format(cellNumberValue), getFontByExcel(cell.getCellStyle()));
 				return phrase;
 			}
 		} else {
@@ -202,6 +189,12 @@ public class PdfTableExcel {
 			}
 		}
 
+	}
+
+	public static void main(String[] args) throws Exception {
+		NumberFormat format = new DecimalFormat("#.#");
+		System.out.println("10.0="+format.format(10.0));
+		System.out.println("100.34="+format.format(100.34));
 	}
 
 	protected void addImageByPOICell(PdfPCell pdfpCell, Cell cell, float cellWidth)
