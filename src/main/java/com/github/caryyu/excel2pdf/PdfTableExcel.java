@@ -84,7 +84,7 @@ public class PdfTableExcel {
 				if (isUsed(cell.getColumnIndex(), row.getRowNum())) {
 					continue;
 				}
-				//cell.setCellType(Cell.CELL_TYPE_STRING);
+				// cell.setCellType(Cell.CELL_TYPE_STRING);
 				CellRangeAddress range = getColspanRowspanByExcel(row.getRowNum(), cell.getColumnIndex());
 				//
 				int rowspan = 1;
@@ -97,8 +97,9 @@ public class PdfTableExcel {
 				PdfPCell pdfpCell = new PdfPCell();
 
 				int[] rgb = getBackgroundColor(cell.getCellStyle());
-				pdfpCell.setBackgroundColor(new BaseColor(rgb[0],rgb[1],rgb[2]));
-//				pdfpCell.setBackgroundColor(new BaseColor(getBackgroundColorByExcel(cell.getCellStyle())));
+				pdfpCell.setBackgroundColor(new BaseColor(rgb[0], rgb[1], rgb[2]));
+				// pdfpCell.setBackgroundColor(new
+				// BaseColor(getBackgroundColorByExcel(cell.getCellStyle())));
 				pdfpCell.setColspan(colspan);
 				pdfpCell.setRowspan(rowspan);
 				pdfpCell.setVerticalAlignment(getVAlignByExcel(cell.getCellStyle().getVerticalAlignment()));
@@ -154,36 +155,53 @@ public class PdfTableExcel {
 		String formatStr = cellStyle.getDataFormatString();
 		// String cellValue = cell.getStringCellValue();
 		double cellNumberValue = 0;
-		// 無法直接用 cell.getCellType() 來判斷是否為數值
-		boolean isNumber = cell.getCellType() == Cell.CELL_TYPE_NUMERIC;
-		if (cell.getCellType() == Cell.CELL_TYPE_NUMERIC || cell.getCellType() == Cell.CELL_TYPE_FORMULA) {
+
+		boolean isNumber = false;
+		if (cell.getCellType() == Cell.CELL_TYPE_NUMERIC) {
 			try {
 				cellNumberValue = cell.getNumericCellValue();// Double.parseDouble(cellValue);
 				isNumber = true;
 			} catch (Exception e) {
-				isNumber = false;
+			}
+		} else if (cell.getCellType() == Cell.CELL_TYPE_FORMULA) {
+			FormulaEvaluator evaluator = cell.getSheet().getWorkbook().getCreationHelper().createFormulaEvaluator();
+			int resultType = evaluator.evaluateFormulaCell(cell);
+			if (resultType == Cell.CELL_TYPE_NUMERIC) {
+				try {
+					cellNumberValue = cell.getNumericCellValue();
+					isNumber = true;
+				} catch (Exception e) {
+				}
 			}
 		}
-		
+
 		// 若該 Cell 有特定輸出 Format,則以該 Format 輸出
-		if (!"general".equals(formatStr.toLowerCase()) && isNumber) {
-			String numberFormat = formatStr;
-			int firstFormatIdx = formatStr.indexOf(";");
-			if (firstFormatIdx > 0)
-				numberFormat = formatStr.substring(0, firstFormatIdx);
-			String formattedValue = new CellNumberFormatter(numberFormat).format(cellNumberValue);
-			Phrase phrase = new Phrase(formattedValue, getFontByExcel(cell.getCellStyle()));
-			return phrase;
+		if (isNumber) {
+			if (!"general".equals(formatStr.toLowerCase())) {
+				String numberFormat = formatStr;
+				int firstFormatIdx = formatStr.indexOf(";");
+				if (firstFormatIdx > 0)
+					numberFormat = formatStr.substring(0, firstFormatIdx);
+				String formattedValue = new CellNumberFormatter(numberFormat).format(cellNumberValue);
+				Phrase phrase = new Phrase(formattedValue, getFontByExcel(cell.getCellStyle()));
+				return phrase;
+			} else {
+				Phrase phrase = new Phrase(Double.toString(cellNumberValue), getFontByExcel(cell.getCellStyle()));
+				return phrase;
+			}
+		} else {
+			// 強制轉換為文字類別,如此沒有格式化的數字也能透過 cell.getStringCellValue 取出
+			cell.setCellType(Cell.CELL_TYPE_STRING);
+			if (this.setting || this.excelObject.getAnchorName() == null) {
+				return new Phrase(cell.getStringCellValue(), getFontByExcel(cell.getCellStyle()));
+			} else {
+				Anchor anchor = new Anchor(cell.getStringCellValue(), getFontByExcel(cell.getCellStyle()));
+				anchor.setName(this.excelObject.getAnchorName());
+				this.setting = true;
+				return anchor;
+			}
 		}
-		// 強制轉換為文字類別,如此沒有格式化的數字也能透過 cell.getStringCellValue 取出
-		cell.setCellType(Cell.CELL_TYPE_STRING);
-		if (this.setting || this.excelObject.getAnchorName() == null) {
-			return new Phrase(cell.getStringCellValue(), getFontByExcel(cell.getCellStyle()));
-		}
-		Anchor anchor = new Anchor(cell.getStringCellValue(), getFontByExcel(cell.getCellStyle()));
-		anchor.setName(this.excelObject.getAnchorName());
-		this.setting = true;
-		return anchor;
+
 	}
 
 	protected void addImageByPOICell(PdfPCell pdfpCell, Cell cell, float cellWidth)
@@ -276,15 +294,14 @@ public class PdfTableExcel {
 		Font itextFont = Resource.getFont((HSSFFont) font);
 		Font result = itextFont;
 		// 粗體+斜體
-		if (font.getBoldweight() == org.apache.poi.ss.usermodel.Font.BOLDWEIGHT_BOLD
-				&& font.getItalic()) {
+		if (font.getBoldweight() == org.apache.poi.ss.usermodel.Font.BOLDWEIGHT_BOLD && font.getItalic()) {
 			result.setStyle(Font.BOLDITALIC);
-		}else if (font.getBoldweight() == org.apache.poi.ss.usermodel.Font.BOLDWEIGHT_BOLD) { // 粗體
+		} else if (font.getBoldweight() == org.apache.poi.ss.usermodel.Font.BOLDWEIGHT_BOLD) { // 粗體
 			result.setStyle(Font.BOLD);
-		}else if (font.getItalic()) { // 斜體
+		} else if (font.getItalic()) { // 斜體
 			result.setStyle(Font.ITALIC);
 		}
-		
+
 		// 字体颜色
 		int colorIndex = font.getColor();
 		HSSFColor color = HSSFColor.getIndexHash().get(colorIndex);
@@ -292,7 +309,7 @@ public class PdfTableExcel {
 			int rbg = POIUtil.getRGB(color);
 			result.setColor(new BaseColor(rbg));
 		}
-		
+
 		// 下划线
 		FontUnderline underline = FontUnderline.valueOf(font.getUnderline());
 		if (underline == FontUnderline.SINGLE) {
@@ -306,7 +323,7 @@ public class PdfTableExcel {
 		Color color = style.getFillForegroundColorColor();
 		return POIUtil.getColorRGB(color);
 	}
-	
+
 	protected int getBackgroundColorByExcel(CellStyle style) {
 		Color color = style.getFillForegroundColorColor();
 		return POIUtil.getRGB(color);
